@@ -22,6 +22,7 @@ if command -v docker; then
     echo "Docker is installed"
 else
     install_docker
+fi
     
 install_httpd() {
     echo "Pulling httpd from registry server"
@@ -100,7 +101,7 @@ encrypt_dir() {
         else 
             echo "${part} is not present. Please retry!"
         fi
-    do
+    done
 
     read -p "Enter the mount point (e.g., /mnt/encrypted): " mount_point
 
@@ -108,7 +109,6 @@ encrypt_dir() {
     while true; do
         read -p "Enter the filesystem type (e.g., ext4): " fs_type
         if is_valid_fs_type "$fs_type"; then
-            echo "${fs_type} is supported."
             break
         else
             echo "${fs_type} is not supported. Please retry!"
@@ -117,3 +117,4 @@ encrypt_dir() {
 
 
 }
+encrypt_dir
