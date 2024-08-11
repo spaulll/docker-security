@@ -1,7 +1,7 @@
 #!/bin/bash
 
+# Check if docker is available
 is_docker_installed() {
-    # Checking for docker
     if command -v docker > /dev/null 2>&1; then
         echo "Docker is installed"
         return 0
@@ -18,9 +18,10 @@ is_docker_installed() {
     fi
 }
 
+# Installs docker
 install_docker() {
     echo "Installing Docker"
-    curl -fsSL https://get.docker.com -o get-docker.sh | bash
+    curl -fsSL https://get.docker.com | bash
     # chmod +x get-docker.sh
     # sudo ./get-docker.sh
 
@@ -41,8 +42,9 @@ install_docker() {
     dockerd-rootless-setuptool.sh install
 }
 
+# Check if any port is occered or not
 is_port_open() {
-    port=$1
+    local port=$1
     if netstat -tuln | grep ":$port" > /dev/null; then
         return 1
     else
@@ -50,8 +52,7 @@ is_port_open() {
     fi
 }
 
-
-
+# Prints available drives
 available_drives() {
     echo "Available drives and partitions:"
     echo "-----------------------------------"
@@ -59,13 +60,13 @@ available_drives() {
     echo "-----------------------------------"
 }
 
+# Prints supported FS types
 supported_filesystems() {
-    i=0
     echo "Supported filesystem types:"
     echo "-----------------------------------"
-    fs_list=($(ls /sbin/mkfs.* | sed -n 's|.*/mkfs\.||p'))
+    local fs_list=($(ls /sbin/mkfs.* | sed -n 's|.*/mkfs\.||p'))
     # Print the array
-    n=0
+    local n=0
     for i in "${fs_list[@]}"; do
         n=$((n+1))
         echo "${n}. $i" 
@@ -84,11 +85,12 @@ is_valid_fs_type() {
     return 1
 }
 
+# For auto mount a LUKS encrypted drive 
 auto_mount() {
-    part=$1
-    drive_name=$2
-    mount_point=$3
-    fs_type=$4
+    local part=$1
+    local drive_name=$2
+    local mount_point=$3
+    local fs_type=$4
     while true; do
         read -sp "Please enter your password that you have used during encryption: " mount_key
         echo ""
@@ -100,7 +102,7 @@ auto_mount() {
         fi
     done
     echo $mount_key > /root/.key
-    chmod 400 /root/.key
+    chmod 440 /root/.key
     cryptsetup luksAddKey /dev/$part $drive_name
     # Adding UUID to crypttab
     UUID=$(blkid -s UUID -o value /dev/$part)
@@ -116,10 +118,12 @@ auto_mount() {
     else
         echo "Failed to mount $drive_name at $mount_point"
     fi
-
 }
 
 encrypt_dir() {
+
+    local part mount_point fs_type
+
     # Checks if cryptsetup is present
     if ! command -v cryptsetup > /dev/null 2>&1; then
         echo "cryptsetup command not found."
@@ -177,7 +181,17 @@ encrypt_dir() {
     done
 }
 
+add_to_firewall() {
+    local port=$1
+    firewall-cmd --permanent --add-port=${port}/tcp
+    firewall-cmd --permanent --add-port=${port}/udp
+    firewall-cmd --reload
+}
+
 install_httpd() {
+
+    local input port
+
     if ! is_docker_installed; then
         echo "Docker is not found."
         echo "Exiting..."
@@ -200,13 +214,10 @@ install_httpd() {
 
     while true; do
         read -p "Enter a port number to use on httpd server: " port
-        if [[ ! $port =~ ^[0-9]+$ ]] || [ $port -lt 2 ] || [ $port -gt 65535 ]; then
-            echo "Please enter a valid port number!"
-        fi
-        if is_port_open $port; then
+        if [[ $port =~ ^[0-9]+$ ]] && [ $port -ge 2 ] && [ $port -le 65535 ] && is_port_open $port; then
             break
         else
-            echo "${port} is occupied. Please retry!"
+            echo "$port is invalid or occupied. Please retry!"
         fi
     done
 
@@ -215,9 +226,14 @@ install_httpd() {
         -p $port:80 \
         -v "$input":/usr/local/apache2/htdocs/ \
         --restart always httpd 
+    
+    add_to_firewall $port
 }
 
 install_mysql() {
+
+    local port input user_mariadb user_pass_mariadb re_user_pass_mariadb db_name root_pass_mariadb
+
     if ! is_docker_installed; then
         echo "Docker is not found."
         echo "Exiting..."
@@ -241,13 +257,10 @@ install_mysql() {
 
     while true; do
         read -p "Enter a port number to use on mariadb server: " port
-        if [[ ! $port =~ ^[0-9]+$ ]] || [ $port -lt 2 ] || [ $port -gt 65535 ]; then
-            echo "Please enter a valid port number!"
-        fi
-        if is_port_open $port; then
+        if [[ $port =~ ^[0-9]+$ ]] && [ $port -ge 2 ] && [ $port -le 65535 ] && is_port_open $port; then
             break
         else
-            echo "${port} is occupied. Please retry!"
+            echo "$port is invalid or occupied. Please retry!"
         fi
     done
     read -p "Enter username for MariaDB: " user_mariadb
@@ -282,7 +295,15 @@ install_mysql() {
         --env MARIADB_DATABASE=$db_name \
         --env MARIADB_ROOT_PASSWORD=$root_pass_mariadb \
         -p $port:3306  mariadb:latest
+    
+    add_to_firewall $port
 }
+
+# Main script
+if [ whoami != 'root' ]; then
+    echo "Root privileges are required to run this script."
+    echo "Exiting..."
+    exit 1
 
 install_httpd
 install_mysql
