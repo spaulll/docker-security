@@ -300,7 +300,7 @@ install_mysql() {
 }
 
 # Main script
-if [ whoami = 'root' ]; then
+if [ `whoami` != 'root' ]; then
     echo "Root privileges are required to run this script."
     echo "Exiting..."
     exit 1
