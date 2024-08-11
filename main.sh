@@ -304,6 +304,7 @@ if [ whoami != 'root' ]; then
     echo "Root privileges are required to run this script."
     echo "Exiting..."
     exit 1
+fi
 
 install_httpd
 install_mysql
