@@ -209,13 +209,13 @@ install_httpd() {
         echo -e "${RED}Exiting...${NC}"
         exit 1
     fi
-    echo -e "${CYAN}Pulling httpd from registry server${NC}"
+    echo -e "${CYAN}Pulling php:7.2-apache from registry server${NC}"
     docker pull httpd
     echo ""
     echo -e "${CYAN}================================================================================${NC}"
     echo ""
     while true; do
-        read -p "${YELLOW_BOLD}Enter a directory to use on httpd server.${NC} You can also use a mount point along with LUKS encryption. To encrypt a drive and mount it enter 'YES' in capital letters, or enter a directory name to proceed: " input
+        read -p "$(echo -e "${YELLOW_BOLD}Enter a directory to use on http server.${NC} You can also use a mount point along with LUKS encryption. To encrypt a drive and mount it enter 'YES' in capital letters, or enter a directory name to proceed: ")" input
         if [ "$input" = "YES" ]; then
             encrypt_dir
             break
@@ -228,7 +228,7 @@ install_httpd() {
     done
 
     while true; do
-        read -p "Enter a port number to use on httpd server: " port
+        read -p "Enter a port number to use on http server: " port
         if [[ $port =~ ^[0-9]+$ ]] && [ $port -ge 2 ] && [ $port -le 65535 ] && is_port_open $port; then
             break
         else
@@ -237,10 +237,10 @@ install_httpd() {
     done
 
     docker run -d \
-        --name httpd-server \
+        --name http-server \
         -p $port:80 \
-        -v "$input":/usr/local/apache2/htdocs/ \
-        --restart always httpd 
+        -v "$input":/var/www/html/ \
+        --restart always php:7.2-apache 
     
     add_to_firewall $port
     echo ""
@@ -263,7 +263,7 @@ install_mysql() {
     echo -e "${CYAN}================================================================================${NC}"
     echo ""
     while true; do
-        read -p "${YELLOW_BOLD}Enter a directory to use on mariadb server.${NC} You can also use a mount point along with LUKS encryption. To encrypt a drive and mount it enter 'YES' in capital letters, or enter a directory name to proceed: " input
+        read -p "$(echo -e "${YELLOW_BOLD}Enter a directory to use on mariadb server.${NC} You can also use a mount point along with LUKS encryption. To encrypt a drive and mount it enter 'YES' in capital letters, or enter a directory name to proceed: ")" input
         if [ "$input" = "YES" ]; then
             encrypt_dir
             break
@@ -312,10 +312,10 @@ install_mysql() {
     read -p "Enter a database name: " db_name
 
     docker run --detach --name mariadb \
-        --env MARIADB_USER=$user_mariadb \
-        --env MARIADB_PASSWORD=$user_pass_mariadb \
-        --env MARIADB_DATABASE=$db_name \
-        --env MARIADB_ROOT_PASSWORD=$root_pass_mariadb \
+        --env MARIADB_USER="$user_mariadb" \
+        --env MARIADB_PASSWORD="$user_pass_mariadb" \
+        --env MARIADB_DATABASE="$db_name" \
+        --env MARIADB_ROOT_PASSWORD="$root_pass_mariadb" \
         -p $port:3306  mariadb:latest
     
     add_to_firewall $port
