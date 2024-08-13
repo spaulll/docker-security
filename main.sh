@@ -8,44 +8,29 @@ YELLOW_BOLD='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# Check if docker is available
-is_docker_installed() {
-    if command -v docker > /dev/null 2>&1; then
-        echo -e "${GREEN}Docker is installed${NC}"
+# Check if podman is available
+is_podman_installed() {
+    if command -v podman > /dev/null 2>&1; then
+        echo -e "${GREEN}Podman is installed${NC}"
         return 0
     else
-        echo -e "${RED}Docker is not installed.${NC} Do you want to install Docker? [Y/n]: "
+        echo -e "${RED}Podman is not installed.${NC} Do you want to install podman? [Y/n]: "
         read -r answer
         if [ "$answer" = "Y" ] || [ "$answer" = "y" ] || [ -z "$answer" ]; then
-            install_docker
+            install_podman
             return 0
         else
-            echo -e "${YELLOW}Docker installation skipped.${NC}"
+            echo -e "${YELLOW}Podman installation skipped.${NC}"
             return 1
         fi
     fi
 }
 
-# Installs docker
-install_docker() {
-    echo -e "${CYAN}Installing Docker${NC}"
-    curl -fsSL https://get.docker.com | bash
+# Installs podman
+install_podman() {
+    echo -e "${CYAN}Installing podman${NC}"
+    dnf install podman
 
-    # Checking if docker daemon is running
-    if systemctl is-active --quiet docker.service; then
-        echo -e "${GREEN}Docker daemon is running${NC}"
-    else
-        echo -e "${YELLOW}Starting docker daemon..${NC}"
-        if systemctl start docker.service > /dev/null 2>&1; then
-            echo -e "${GREEN}Docker daemon started.${NC}"
-        else
-            echo -e "${RED}Failed to start docker daemon.${NC}"
-            echo -e "${RED}Exiting...${NC}"
-            exit 1
-        fi        
-    fi
-
-    dockerd-rootless-setuptool.sh install
 }
 
 # Check if any port is open or not
@@ -110,6 +95,10 @@ auto_mount() {
     done
     echo $mount_key > /root/.key
     chmod 440 /root/.key
+
+    # command=cryptsetup luksAddKey /dev/$part $drive_name
+    # eval "$command" | sed 's/something : /Please again re-enter your password:/'
+   
     cryptsetup luksAddKey /dev/$part $drive_name
     # Adding UUID to crypttab
     UUID=$(blkid -s UUID -o value /dev/$part)
@@ -135,8 +124,8 @@ encrypt_dir() {
     # Checks if cryptsetup is present
     if ! command -v cryptsetup > /dev/null 2>&1; then
         echo -e "${RED}cryptsetup command not found.${NC}"
-        echo -e "${RED}Exiting....${NC}"
-        exit 1
+        echo -e "${YELLOW}Going back to main menu${NC}"
+        return
     fi
     available_drives
     while true; do
@@ -167,8 +156,8 @@ encrypt_dir() {
     echo -e "${CYAN}Encrypting ${part}...${NC}"
     if ! cryptsetup luksFormat /dev/$part; then
         echo -e "${RED}Error while encrypting the drive. Please format the drive manually to continue.${NC}"
-        echo -e "${RED}Exiting...${NC}"
-        exit 1
+        echo -e "${YELLOW}Going back to main menu${NC}"
+        return
     fi
     read -p "Enter the drive name: " drive_name
     cryptsetup luksOpen /dev/$part $drive_name
@@ -202,18 +191,19 @@ add_to_firewall() {
 
 install_httpd() {
 
-    local input port
+    local input port name
 
-    if ! is_docker_installed; then
-        echo -e "${RED}Docker is not found.${NC}"
+    if ! is_podman_installed; then
+        echo -e "${RED}podman is not found.${NC}"
         echo -e "${RED}Exiting...${NC}"
         exit 1
     fi
     echo -e "${CYAN}Pulling php:7.2-apache from registry server${NC}"
-    docker pull httpd
+    podman pull php:7.2-apache
     echo ""
     echo -e "${CYAN}================================================================================${NC}"
     echo ""
+    read -p "Enter a name for the http server container: " name
     while true; do
         read -p "$(echo -e "${YELLOW_BOLD}Enter a directory to use on http server.${NC} You can also use a mount point along with LUKS encryption. To encrypt a drive and mount it enter 'YES' in capital letters, or enter a directory name to proceed: ")" input
         if [ "$input" = "YES" ]; then
@@ -236,8 +226,8 @@ install_httpd() {
         fi
     done
 
-    docker run -d \
-        --name http-server \
+    podman run -d \
+        --name "$name" \
         -p $port:80 \
         -v "$input":/var/www/html/ \
         --restart always php:7.2-apache 
@@ -248,20 +238,25 @@ install_httpd() {
     echo ""
 }
 
-install_mysql() {
+install_mariadb() {
 
-    local port input user_mariadb user_pass_mariadb re_user_pass_mariadb db_name root_pass_mariadb
+    local port input user_mariadb user_pass_mariadb re_user_pass_mariadb db_name root_pass_mariadb name
 
-    if ! is_docker_installed; then
-        echo -e "${RED}Docker is not found.${NC}"
+    if ! is_podman_installed; then
+        echo -e "${RED}podman is not found.${NC}"
         echo -e "${RED}Exiting...${NC}"
         exit 1
     fi
-    echo -e "${CYAN}Pulling MySQL from registry server${NC}"
-    docker pull mysql/mysql-server
+    echo -e "${CYAN}Pulling mariadb from registry server${NC}"
+    if ! podman pull mariadb; then
+        echo -e "${RED}Failed to pull mariadb image form registry server!${NC}"
+        echo -e "${YELLOW}Going back yo main menu${NC}"
+        return
+    fi
     echo ""
     echo -e "${CYAN}================================================================================${NC}"
     echo ""
+    read -p "Enter a name for the mariadb container: " name
     while true; do
         read -p "$(echo -e "${YELLOW_BOLD}Enter a directory to use on mariadb server.${NC} You can also use a mount point along with LUKS encryption. To encrypt a drive and mount it enter 'YES' in capital letters, or enter a directory name to proceed: ")" input
         if [ "$input" = "YES" ]; then
@@ -311,7 +306,7 @@ install_mysql() {
 
     read -p "Enter a database name: " db_name
 
-    docker run --detach --name mariadb \
+    podman run -d --name "$name" \
         --env MARIADB_USER="$user_mariadb" \
         --env MARIADB_PASSWORD="$user_pass_mariadb" \
         --env MARIADB_DATABASE="$db_name" \
@@ -320,8 +315,49 @@ install_mysql() {
     
     add_to_firewall $port
     echo ""
+
+    echo -e "Do you want to open mariadb prompt as '$user_mariadb' of '$db_name'? [Y/n]: "
+    read -r answer
+    if [ "$answer" = "Y" ] || [ "$answer" = "y" ] || [ -z "$answer" ]; then
+        if ! command -v mariadb > /dev/null; then
+            echo -e "${RED}mariadb not found. Do you want to install? [Y/n]: "
+            read -r answer
+            if [ "$answer" = "Y" ] || [ "$answer" = "y" ] || [ -z "$answer" ]; then
+                echo -e "[${GREEN}+${NC}] Installing mariadb..."
+                if ! dnf install mariadb -y > /dev/null; then
+                    echo -e "[${RED}+${NC}] Installation failed..."
+                    return
+                fi
+                echo -e "[${GREEN}+${NC}] Installation done..."
+            else
+                return
+            fi
+        fi
+        echo -e "${CYAN}================================================================================${NC}"
+        echo ""
+        con_ip=$(podman inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$name")
+        mariadb -h "$con_ip" -u "$user_mariadb" -p"$user_pass_mariadb" -D "$db_name"
+        echo -e "You can also open mariadb console with '${YELLOW_BOLD}mariadb -h \"$con_ip\" -u \"$user_mariadb\" -p\"$user_pass_mariadb\" -D \"$db_name\"${NC}'"
+    fi
+
     echo -e "${CYAN}================================================================================${NC}"
     echo ""
+}
+
+list_img_containers() {
+    local choice
+    echo "1. Images list"
+    echo "2. Conatiners list"
+    echo "3. Back to main menu"
+    read -p "Enter your choice [1-2]: " choice
+    echo -e "${CYAN}================================================================================${NC}"
+    echo ""
+    case $choice in
+        1) podman images ;;
+        2) podman ps -a;;
+        3) return 0 ;;
+        *) echo -e "${RED}Invalid choice, Try again!${NC}"; echo "" ;;
+    esac
 }
 
 show_menu() {
@@ -329,12 +365,13 @@ show_menu() {
     echo -e "${CYAN}            MAIN MENU                ${NC}"
     echo -e "${CYAN}=====================================${NC}"
     echo "1. Install and configure HTTPD server"
-    echo "2. Install and configure MySQL server"
-    echo "3. Check if Docker is installed"
+    echo "2. Install and configure mariadb server"
+    echo "3. Check if podman is installed"
     echo "4. List available drives"
     echo "5. List supported filesystem types"
     echo "6. Encrypt and mount a drive"
-    echo "7. Exit"
+    echo "7. List images or containers"
+    echo "8. Exit"
     echo -e "${CYAN}=====================================${NC}"
 }
 
@@ -347,15 +384,16 @@ fi
 
 while true; do
     show_menu
-    read -p "Enter your choice [1-7]: " choice
+    read -p "Enter your choice [1-8]: " choice
     case $choice in
         1) install_httpd ;;
-        2) install_mysql ;;
-        3) is_docker_installed ;;
+        2) install_mariadb ;;
+        3) is_podman_installed ;;
         4) available_drives ;;
         5) supported_filesystems ;;
         6) encrypt_dir ;;
-        7) echo -e "${CYAN}Exiting...${NC}"; exit 0 ;;
+        7) list_img_containers ;;
+        8) echo -e "${CYAN}Exiting...${NC}"; exit 0 ;;
         *) echo -e "${RED}Invalid choice, Try again!${NC}"; echo "" ;;
     esac
     echo ""
